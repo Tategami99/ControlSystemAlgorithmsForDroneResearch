@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from stateDynamics import StateDynamics
-from MPC import MPC
+from state_dynamics import StateDynamics
+from MPC.MPC import MPC
 from scipy.optimize import differential_evolution
 from matplotlib.animation import FuncAnimation, PillowWriter
 import imageio
@@ -21,6 +21,18 @@ def calculate_current_coverage(drone_positions, gx, gy, gz, radius=1.0):
         dist_sq = (gx - dx)**2 + (gy - dy)**2
         covered_mask |= (dist_sq <= radius**2)
     return np.sum(gz[covered_mask])
+
+def calculate_redundant_coverage(drone_positions, gx, gy, gz, radius=1.0):
+    """Calculates overlap/redundant coverage (areas covered by multiple drones)."""
+    coverage_count = np.zeros(gz.shape)
+    for i in range(0, len(drone_positions), 2):
+        dx, dy = drone_positions[i], drone_positions[i+1]
+        dist_sq = (gx - dx)**2 + (gy - dy)**2
+        coverage_count += (dist_sq <= radius**2).astype(int)
+    
+    # Areas covered by more than 1 drone
+    redundant_mask = coverage_count > 1
+    return np.sum(gz[redundant_mask])
 
 def find_max_theoretical_coverage(n_drones, gx, gy, gz, radius=1.0):
     """Finds the absolute best 5 positions for stationary drones."""
