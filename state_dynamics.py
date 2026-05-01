@@ -24,9 +24,10 @@ def invVec(X):
   
 class StateDynamics(object):
   
-  def __init__(self, n1, n2, p, W, A_E, A_S, B_S):
+  def __init__(self, n1, n2, p, W, A_E, A_S, B_S, B_E=None):
     """
-    Initializes the class
+    Initializes the class.
+    B_E: optional (n1, p) control matrix for first n1 states; if None, first n1 rows of B are zero.
     """
     self.x_E = np.zeros((n1,1)) # earth vector
     self.x_S = np.zeros((n2,1)) # sensor vector
@@ -47,9 +48,10 @@ class StateDynamics(object):
     self.A[:n1, :n1] = A_E
     self.A[n1:, n1:] = A_S
     
-    
     self.B = np.zeros((n,p)) # control input matrix
-    self.B[n1:, :p] = B_S # shape (n2,p)  
+    self.B[n1:, :p] = B_S # shape (n2,p)
+    if B_E is not None:
+        self.B[:n1, :] = B_E  # e.g. double-integrator x-dot gets control  
     self.t = 0 # time step
     self.trajectory = [] # trajectory of the system
     self.trajectory.append([self.x, self.u]) # append initial state and control input to trajectory
@@ -100,7 +102,16 @@ class StateDynamics(object):
     '''
     current state vector
     '''
-    return self.x 
+    return self.x
+
+  def set_x(self, x):
+    '''
+    set current state vector (e.g. initial state for tracking)
+    '''
+    x = np.asarray(x).reshape(self.n, 1)
+    self.x = x
+    self.x_E = x[:self.n1]
+    self.x_S = x[self.n1:]
   
   def set_u(self, u):
     '''
@@ -234,9 +245,10 @@ class StateDynamics(object):
     return w_tilde # shape (n+n^2,1)
   
 class sensor(object):
-  def __init__(self, C, M, V):
+  def __init__(self, C, M, V, measA=None):
     """
-    Initializes the class
+    Initializes the class.
+    measA: optional (m, 1) constant term in measurement; if None, uses zeros.
     """
     # M shape - (m, n, n) where n is state size
     assert C.shape[0] == M.shape[0], "C and M must have the same length m"
@@ -246,7 +258,8 @@ class sensor(object):
     self.M = M.astype(np.float64) # covariance matrix for process noise w
     self.V = V.astype(np.float64) # covariance matrix for measurement noise v
     self.C = C.astype(np.float64) # measurement matrix, shape (m, n)
-    
+    self._measA = np.zeros((self.m, 1)) if measA is None else np.asarray(measA, dtype=np.float64).reshape(self.m, 1)
+  
   def get_V(self):
     '''
     covariance matrix for process noise v
@@ -255,10 +268,9 @@ class sensor(object):
   
   def get_measA(self):
     '''
-    measurement matrix 1; "A" term in Y = A + Bx + Σ e X.T C X + Dv
-    Actualy, this matrix does not exist in our case, but we need it for the QKF, so we define it as a zero matrix.
+    Constant term "A" in Y = A + Bx + Σ e_i X.T M_i X + Dv (shape (m,1)).
     '''
-    return np.zeros((self.m, 1)) # shape (m,1)
+    return self._measA
 
   def get_aug_measB(self):
     '''
@@ -283,9 +295,9 @@ class sensor(object):
   
   def measure(self, x):
     '''
-    Measurement function
+    Measurement function: Y = measA + C@x + sum_i e_i x'*M[i]*x + D*v
     '''
-    term1 = self.C @ x # shape (m,1)
+    term1 = self.get_measA() + self.C @ x # shape (m,1)
     term2 = np.zeros((self.m, 1)) 
     for i in range(self.m):
         e = np.zeros((self.m, 1))
@@ -301,9 +313,9 @@ class sensor(object):
   
   def measure_pred(self, x_pred):
     '''
-    Measurement function for predicted state
+    Measurement function for predicted state (no noise)
     '''
-    term1 = self.C @ x_pred
+    term1 = self.get_measA() + self.C @ x_pred
     term2 = np.zeros((self.m, 1))
     for i in range(self.m):
         e = np.zeros((self.m, 1))
